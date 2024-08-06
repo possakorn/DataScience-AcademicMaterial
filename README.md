@@ -38,23 +38,23 @@ This section provides an overview of the courses I've taken, along with the acad
 
 | Course            | Content       | Coding Languages |
 | -------------     | ------------- | ------------- |
-| [Course 1: Data Taming](#course-1-data-taming)| Cricket Statistical Exploration  | R Programming |
+| [Course 1: Data Taming](01_DataTaming)| Cricket Statistical Exploration  | R Programming |
 |    | Boston Sun-Times Circulation Predictions  | R Programming |
 |    | Melbourne Evaporation Prediction  | R Programming |
 |    | Engagement Prediction on personal and demographic factors  | R Programming |
-| [Course 2: Concept of Artificial Intelligence and Machine Learning](#course-2-concept-of-artificial-intelligence-and-machine-learning)| Linear Regression | Python |
+| [Course 2: Concept of Artificial Intelligence and Machine Learning](02_ConceptAIML)| Linear Regression | Python |
 |   | K-means algorithm with PCA  | Python |
 |   | Flower Classifications using CNN  | Python |
-| [Course 3: Intro to Statistical Machine Learning](#course-3-intro-to-statistical-machine-learning)| Regression and Classification from scratch | Python |
+| [Course 3: Intro to Statistical Machine Learning](03_IntroStatisticML)| Regression and Classification from scratch | Python |
 |   | Machine Learning Algorithm from Scratch  | Python |
-| [Course 4: Data Science PG](#course-4-data-science-pg)| Data Implementation Flow | R Programming |
+| [Course 4: Data Science PG](04_DataSciencePG)| Data Implementation Flow | R Programming |
 |   | Related Function:  | R Programming |
 |   | Technical Communication  | R Programming |
-| [Course 5: Big Data Analysis](#course-5-big-data-analysis)| Churn analysis on Ecommerce | R Programming |
-| [Course 6: Deep Learning](#course-6-deep-learning)| Diabetes Prediction via Perceptron | Python |
+| [Course 5: Big Data Analysis](05_BigDataProject)| Churn analysis on Ecommerce | R Programming |
+| [Course 6: Deep Learning](06_Deeplearning)| Diabetes Prediction via Perceptron | Python |
 |   | Image Classification via CNN  | Python |
 |   | Stock Price Market Prediction using RNN  | Python |
-| [Course 7: Natural Language Processing (NLP)](#course-7-natural-language-processing-nlp)| Sentiment Analysis on Customer Review | Python |
+| [Course 7: Natural Language Processing (NLP)](07_NLP)| Sentiment Analysis on Customer Review | Python |
 |   | Information Retrieval-based Question Answering (IR QA) system  | Python |
 
 

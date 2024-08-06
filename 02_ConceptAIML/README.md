@@ -11,7 +11,7 @@ This course provides foundational knowledge and skills in applying modern AI too
 
 **Description:** Implementing linear regression from scratch and applying it to a real-world dataset.
 
-**Files:** [A1_LinearRegression.ipynb](02_ConceptAIML/A1_LinearRegression.ipynb)
+**Files:** [A1_LinearRegression.ipynb](A1_LinearRegression.ipynb)
 
 ---
 
@@ -19,7 +19,7 @@ This course provides foundational knowledge and skills in applying modern AI too
 
 **Description:** Comparing different classification algorithms such as k-nearest neighbors, decision trees, and support vector machines.
 
-**Files:** [A2_Kmeans_PCA.ipynb](02_ConceptAIML/A2_Kmeans_PCA.ipynb)
+**Files:** [A2_Kmeans_PCA.ipynb](A2_Kmeans_PCA.ipynb)
 
 ---
 
@@ -27,6 +27,6 @@ This course provides foundational knowledge and skills in applying modern AI too
 
 **Description:** Developing a convolutional neural network (CNN) to classify images from the Flower dataset.
 
-**Files:** [A3_FlowerClassification_CNN.ipynb](02_ConceptAIML/A3_FlowerClassification_CNN.ipynb)
+**Files:** [A3_FlowerClassification_CNN.ipynb](A3_FlowerClassification_CNN.ipynb)
 
 ---

@@ -11,7 +11,7 @@ This course offers an introduction to machine learning, focusing on both theoret
 
 **Description:** Implementing the **linear and logistic regression** models from scratch both gradient and close form matrix. Furthermore, integrating **KNN classification** model also help to fully understand the background and apply for actual dataset
 
-**Files:** [A1_Regression_KNN_FromScratch.ipynb](03_IntroStatisticML/A1_Regression_KNN_FromScratch.ipynb)
+**Files:** [A1_Regression_KNN_FromScratch.ipynb](A1_Regression_KNN_FromScratch.ipynb)
 
 ---
 
@@ -19,6 +19,6 @@ This course offers an introduction to machine learning, focusing on both theoret
 
 **Description:** Deliver fully implemented models across various machine learning techniques, including **SVM, Kernel K-means, and Adaboost**, integrating both theoretical and coding expertise to develop the models from scratch.
 
-**Files:** [A2_SVM_KernelKmeans_Adaboost_FromScratch.ipynb](03_IntroStatisticML/A2_SVM_KernelKmeans_Adaboost_FromScratch.ipynb)
+**Files:** [A2_SVM_KernelKmeans_Adaboost_FromScratch.ipynb](A2_SVM_KernelKmeans_Adaboost_FromScratch.ipynb)
 
 ---

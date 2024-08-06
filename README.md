@@ -4,7 +4,7 @@ Welcome to my collection of academic projects and assignments completed during m
 
 ## Course Summary
 
-The table will include the academic outcomes and highlighted projects, included source file in this repository.
+This section provides an overview of the courses I've taken, along with the academic outcomes and highlighted projects for each course. The table includes links to the source files available in this repository.
 
 <!-- <!-- - [DataScience-AcademicMaterial](#datascience-academicmaterial) -->
 <!-- - [DataScience-AcademicMaterial](#datascience-academicmaterial)
@@ -60,7 +60,7 @@ The table will include the academic outcomes and highlighted projects, included 
 
 ---
 
-## Course 1: Data Taming
+<!-- ## Course 1: Data Taming
 
 The course mainly focused on application of statistical methods to build solution, addressing to real-world problems. The academic projects and assignments conducted via **R programming** for data science, including exploratory data analysis, data transformation, as well as prediction and reporting.<br>
 **Coding:** R programming.<br>
@@ -268,7 +268,7 @@ This course explores advanced machine learning techniques that can be effectivel
 **Files - Code:** [NLP_informationRetrieval_QA.ipynb](07_NLP/NLP_informationRetrieval_QA.ipynb)<br>
 **Files - report:** [NLP_informationRetrieval_QA.pdf](07_NLP/NLP_informationRetrieval_QA.pdf)
 
----
+--- -->
 
 ## Contact
 

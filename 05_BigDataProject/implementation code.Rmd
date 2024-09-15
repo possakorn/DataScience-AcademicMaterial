@@ -1,0 +1,798 @@
+---
+title: "Big Data Analysis and Project"
+subtitle: "Assignment 1: Part C (Modelling)"
+author: "Possakorn A1873765"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output: 
+  pdf_document:
+    keep_tex: FALSE
+bibliography: 
+- citation-bigdata-A.bib
+csl: harvard1.csl
+header-includes:
+   - \usepackage{natbib}
+   - \bibliographystyle{abbrvnat}
+   - \setcitestyle{authoryear, open={((},close={)}}
+---
+
+# Setting
+```{r}
+options(readr.show_types = FALSE)
+```
+
+
+## import library
+```{r import}
+pacman::p_load(
+  tidyverse, # data transformation
+  skimr, # data summary
+  corrplot, # correlation plot
+  plotly, # interactive plot
+  patchwork,
+  glue,
+  rstatix,
+  # model
+  tidymodels,
+  vip,
+  kernlab,
+  discrim,
+  randomForest,
+  bonsai, # for lightGBM
+  xgboost
+)
+```
+
+## import dataset
+```{r warning = FALSE, show_col_types = FALSE}
+order_item_df <- read_csv('sc/olist_order_items_dataset.csv') # main data set
+order_df <- read_csv('sc/olist_orders_dataset.csv') # get order date
+customer_df <- read_csv('sc/olist_customers_dataset.csv') # get customer location
+customer_review_df <- read_csv('sc/olist_order_reviews_dataset.csv')
+geolocation_df <- read.csv('sc/olist_geolocation_dataset.csv') %>% 
+  group_by(geolocation_zip_code_prefix) %>% 
+  summarise(geolocation_lat = median(geolocation_lat),
+            geolocation_lng = median(geolocation_lng)) %>% 
+  mutate(geolocation_zip_code_prefix = as.integer(geolocation_zip_code_prefix))
+seller_df <- read.csv('sc/olist_sellers_dataset.csv')
+payment_df <- read.csv('sc/olist_order_payments_dataset.csv')
+```
+
+## all function
+```{r remove_outlier}
+outliers <- function(x) {
+  Q1 <- quantile(x, probs=.25)
+  Q3 <- quantile(x, probs=.75)
+  iqr = Q3-Q1
+  
+  upper_limit = Q3 + (iqr*1.5)
+  lower_limit = Q1 - (iqr*1.5)
+  x > upper_limit | x < lower_limit
+}
+
+remove_outliers <- function(df, cols = names(df)) {
+  for (col in cols) {
+    df <- df[!outliers(df[[col]]),]
+  }
+  df
+}
+```
+
+```{r plot histrogram}
+plot_histrogram <- function(df, col) {
+  return(plot_df)
+}
+```
+
+```{r get_mode}
+get_mode <- function(v) {
+   uniqv <- unique(v)
+   uniqv[which.max(tabulate(match(v, uniqv)))]
+}
+```
+
+```{r pmat}
+cor.mtest <- function(mat, ...) {
+    mat <- as.matrix(mat)
+    n <- ncol(mat)
+    p.mat<- matrix(NA, n, n)
+    diag(p.mat) <- 0
+    for (i in 1:(n - 1)) {
+        for (j in (i + 1):n) {
+            tmp <- cor.test(mat[, i], mat[, j], ...)
+            p.mat[i, j] <- p.mat[j, i] <- tmp$p.value
+        }
+    }
+  colnames(p.mat) <- rownames(p.mat) <- colnames(mat)
+  p.mat
+}
+```
+
+```{r cor_summary}
+cor_summary <- function(df, output){
+  df %>% 
+    select_if(is.numeric) %>% 
+    na.omit() %>% 
+    cor_mat() %>% #to create the correlation matrix
+    ## gather key
+    gather(-rowname, key = cor_var, value = r) %>% 
+    filter(rowname != cor_var) %>% 
+    filter(rowname == output) %>% 
+    arrange(desc(abs(r)))
+}
+```
+
+
+## join table
+
+### data merge between table
+```{r join_table, include = FALSE}
+join_df <- customer_df %>% 
+  select(customer_id, customer_unique_id, customer_zip_code_prefix, customer_city, customer_state) %>%
+  mutate(customer_zip_code_prefix = as.integer(customer_zip_code_prefix)) %>% 
+   # join with customer geolocation
+  left_join(geolocation_df %>% 
+              rename(customer_zip_code_prefix = geolocation_zip_code_prefix,
+                     customer_lat = geolocation_lat,
+                     customer_lng = geolocation_lng
+                     )
+            , join_by(customer_zip_code_prefix)
+            ) %>%
+  # join with order item data
+  left_join(order_df %>%
+              select(order_id, customer_id, order_status, order_purchase_timestamp, order_approved_at,
+                     order_delivered_carrier_date, order_delivered_customer_date, order_estimated_delivery_date)
+            , join_by(customer_id)
+            ) %>% 
+  # join the txn_data 
+  inner_join(order_item_df %>%
+              group_by(order_id, product_id, seller_id) %>% 
+                summarise(
+                  num_item = n(),
+                  shipping_limit_date = min(shipping_limit_date),
+                  price = sum(price),
+                  freight_value = sum(freight_value)
+                )
+            , join_by(order_id)
+            ) %>%
+  # join with review data - one order there are many as reviews
+  left_join(customer_review_df %>% group_by(order_id) %>% 
+              summarise(avg_review_score = mean(review_score),
+                        review_creation_date = as.Date(min(review_creation_date)),
+                        num_review = n(),
+                        num_negative_review = sum(ifelse(review_score < 4,1,0))
+                        )
+            , join_by(order_id)
+  ) %>%  # join with seller data - 
+  left_join(seller_df %>% 
+              select(seller_id, seller_city, seller_state, seller_zip_code_prefix)
+            , join_by(seller_id)
+  ) %>% 
+  left_join(geolocation_df %>%
+              rename(seller_zip_code_prefix = geolocation_zip_code_prefix,
+                     seller_lat = geolocation_lat,
+                     seller_lng = geolocation_lng
+                     )
+            , join_by(seller_zip_code_prefix)
+            ) %>%
+  left_join(payment_df %>% 
+              group_by(order_id) %>% 
+              summarise(
+                payment_type = get_mode(payment_type),
+                payment_creditcard = sum(ifelse(payment_type == 'credit_card',1,0)),
+                # payment_boleto = sum(ifelse(payment_type == 'boleto',1,0)),
+                payment_voucher = sum(ifelse(payment_type == 'voucher',1,0)),
+                # payment_debit_card = sum(ifelse(payment_type == 'debit_card',1,0)),
+                # payment_not_defined = sum(ifelse(payment_type == 'not_defined',1,0)),
+                num_paymenttype = n_unique(payment_type),
+                num_installments = max(payment_installments)
+                )
+            , join_by(order_id)
+  ) %>% 
+  filter(order_status == 'delivered') %>% 
+  mutate(
+    ## sales
+    sales = price + freight_value,
+    ## feature engineering based on time
+    order_purchase_year = as.integer(year(order_purchase_timestamp)),
+    order_purchase_month =  as.integer(month(order_purchase_timestamp)),
+    year_month = as.Date(parse_date_time(paste(order_purchase_year,order_purchase_month,'01', sep = "-"),'ymd')), # for visualization
+    ## duration
+    payment_duration = as.numeric(difftime(order_approved_at,order_purchase_timestamp, units = "days")),
+    delivery_duration = as.numeric(difftime(order_delivered_customer_date,order_purchase_timestamp, units = "days")),
+    expect_delivery_duration = as.numeric(difftime(order_estimated_delivery_date,order_purchase_timestamp, units = "days")),
+    review_duration = as.numeric(difftime(review_creation_date,order_delivered_carrier_date, units = "days")), # delivery until review
+    handle_diff_duration = as.numeric(difftime(shipping_limit_date,order_delivered_carrier_date, units = "days")),
+    delivery_diff_duration = as.numeric(difftime(order_estimated_delivery_date,order_delivered_customer_date, units = "days")),
+    ## Geolocation
+    order_same_state = ifelse(seller_state == customer_state,1,0),
+    order_same_city = ifelse(seller_city == customer_city,1,0),
+    eu_dis = ( (seller_lat - customer_lat)**2 + (seller_lng - customer_lng)**2 )**0.5
+  ) %>% 
+  ## ranking for all rank
+  group_by(customer_unique_id) %>% 
+  mutate(rank = dense_rank(order_purchase_timestamp),
+         be_repeat_order = as.integer(if_else(rank == 1,0,1))
+         ) %>%  
+  ungroup() %>% 
+  select(-order_purchase_year, -order_purchase_month)
+```
+
+#### Statistic Summary
+```{r}
+join_df %>%
+  skim_without_charts()
+join_df %>% head()
+```
+
+#### Cor summary
+```{r}
+cor_summary(join_df,'be_repeat_order') %>% 
+  arrange(desc(abs(r)))
+```
+
+
+#### testing raw_data
+Highest: order customer - customer_unique_id == '8d50f5eadf50201ccdcedfb9e2ac8455'  , '4f2d8ab171c80ec8364f7c12e35b23ad'
+```{r}
+join_df %>% head()
+join_df %>% skim_without_charts()
+```
+
+## Group by customer level
+
+```{r}
+feature_eng <- function(join_df){
+  recent_date <- max(join_df$order_purchase_timestamp)
+  feature_df <- join_df %>% 
+    group_by(customer_unique_id) %>% 
+    summarise(
+      # transaction data
+      recency = as.numeric(difftime(recent_date,max(order_purchase_timestamp), units = "days")),
+      frequency = n_unique(order_id),
+      monetary = (sum(sales) + sum(freight_value)) / n_unique(order_id), # average basket value purchases?
+      gross_sales = sum(sales) + sum(freight_value),
+      net_sales = sum(price),
+      freight_cost = sum(freight_value),
+      num_items = sum(num_item),
+      avg_basket_size = sum(num_item) / n_unique(order_id),
+      order_last_90_d = n_unique(case_when(
+        as.numeric(difftime(recent_date,order_purchase_timestamp, units = "days")) <= 90 ~ order_id
+      )),
+      order_last_180_d = n_unique(case_when(
+        as.numeric(difftime(recent_date,order_purchase_timestamp, units = "days")) <= 180 ~ order_id
+      )),
+      # payment data
+      payment_method = get_mode(payment_type),
+      average_installments = mean(num_installments),
+      # geolocation
+      avg_delivery_dis = mean(eu_dis),
+      # city = get_mode(customer_city),
+      # state = get_mode(customer_state),
+      order_same_state = mean(order_same_state),
+      order_same_city = mean(order_same_city),
+      # duration
+      payment_duration = mean(payment_duration),
+      delivery_duration = mean(delivery_duration),
+      expect_delivery_duration = mean(expect_delivery_duration),
+      review_duration = mean(review_duration),
+      handle_diff_duration = mean(handle_diff_duration),
+      delivery_diff_duration = mean(delivery_diff_duration),
+      # review
+      avg_review_score = median(avg_review_score),
+      num_review = sum(num_review),
+      num_negative_review = sum(num_negative_review),
+      # behaviour
+      voucher_used = sum(payment_voucher),
+    )
+    # ungroup() %>% 
+    # select(-customer_unique_id)
+  return(feature_df)
+}
+```
+
+```{r}
+join_df_test <- join_df %>% 
+  filter(customer_unique_id %in% c('8d50f5eadf50201ccdcedfb9e2ac8455', '861eff4711a542e4b93843c6dd7febb0'))
+join_df_test %>% 
+  select(customer_unique_id,order_purchase_timestamp,order_id,price,freight_value) %>% 
+  arrange(customer_unique_id,desc(order_purchase_timestamp))
+prep_customer_df <- feature_eng(join_df)
+prep_customer_df
+```
+
+
+#### Statistic Summary
+```{r}
+prep_customer_df %>% 
+  skim_without_charts()
+```
+
+#### Cor summary
+```{r}
+cor_summary(prep_customer_df %>% na.omit(),'gross_sales')
+prep_customer_df %>% select(gross_sales,payment_method) %>%
+  remove_outliers('gross_sales') %>%
+  gather(key = "feature", value = "value",-gross_sales) %>%
+  ggplot(aes(x = gross_sales, fill = value)) +
+  geom_boxplot() +
+  facet_wrap(vars(feature), scales = "free")
+```
+
+## first check Preprocessing
+
+```{r}
+customer_recipe <- recipe( be_churn ~ . , data = prep_customer_df ) %>% 
+  step_normalize( all_numeric_predictors() ) %>% 
+  step_zv( all_predictors() ) %>%
+  step_corr( all_numeric_predictors() ) %>%
+  # step_dummy(all_nominal_predictors()) %>%
+  step_naomit(recipes::all_predictors()) %>% 
+  prep()
+customer_recipe
+```
+
+
+```{r}
+preprocess_customer_df <- juice(customer_recipe)
+  # select()
+preprocess_customer_df
+cor_summary(preprocess_customer_df,'be_churn')
+```
+
+Setting feature window for 12 month and label window for 3 month
+
+And, because date from year 2016 is not stable now, starting to use after year 20170101 to year 
+Train Window: feature 20170101 - 20171231 | label 20180101 - 20180331
+Test Window: feature 20170701 - 20170630 | label 2018
+
+```{r}
+# join_df %>% skim_without_charts()
+Initial_date <- ymd(20180601)
+feature_window <- months(12)
+label_window <- months(3)
+# t_test <- date(2018)
+feature_date <- c(min(join_df$order_purchase_timestamp), max(join_df$order_purchase_timestamp))
+print(Initial_date+label_window)
+print(feature_date)
+print(feature_date[1]+label_window)
+
+# training data
+train_data.X <- join_df %>% 
+  na.omit() %>% 
+  filter(between(order_purchase_timestamp,
+                 Initial_date - feature_window - label_window,
+                 Initial_date - label_window - days(1))
+         )
+train_data.Y <- join_df %>% 
+  na.omit() %>% 
+  filter(between(order_purchase_timestamp,
+                 Initial_date - label_window,
+                 Initial_date - days(1))
+         )
+
+# testing data
+test_data.X <- join_df %>% 
+  na.omit() %>% 
+  filter(between(order_purchase_timestamp,
+                 Initial_date - feature_window,
+                 Initial_date - days(1))
+         )
+test_data.Y <- join_df %>% 
+  na.omit() %>% 
+  filter(between(order_purchase_timestamp,
+                 Initial_date,
+                 Initial_date + label_window - days(1))
+         )
+
+print("train_data.X")
+print(c(min(train_data.X$order_purchase_timestamp), max(train_data.X$order_purchase_timestamp)))
+print("train_data.Y")
+print(c(min(train_data.Y$order_purchase_timestamp), max(train_data.Y$order_purchase_timestamp)))
+
+print("test_data.X")
+print(c(min(test_data.X$order_purchase_timestamp), max(test_data.X$order_purchase_timestamp)))
+print("test_data.Y")
+print(c(min(test_data.Y$order_purchase_timestamp), max(test_data.Y$order_purchase_timestamp)))
+```
+#### check statistic - train
+```{r}
+train_data.X %>% 
+  skim_without_charts()
+```
+
+#### check statistic - test
+```{r}
+test_data.X %>% 
+  skim_without_charts()
+```
+
+# preparation for train and testing set
+
+## training set
+```{r}
+train_df <- train_data.X %>%
+  feature_eng() %>% # adding feature engineering a
+  left_join(train_data.Y %>% 
+              distinct(customer_unique_id) %>% 
+              mutate(be_churn = 0) %>% 
+              select(customer_unique_id,be_churn)
+            , by = "customer_unique_id") %>%
+  mutate(be_churn = as.factor(replace_na(be_churn, 1))) %>% 
+  select(-customer_unique_id,- city)
+head(train_df)
+train_df %>% skim_without_charts()
+```
+
+```{r}
+# train_df
+cor_summary(train_df %>% 
+              mutate(be_churn = as.integer(be_churn)) %>% 
+              na.omit()
+              ,'be_churn')
+```
+
+## testing set
+```{r}
+test_df <- test_data.X %>%
+  feature_eng() %>% # adding feature engineering a
+  left_join(test_data.Y %>% 
+              distinct(customer_unique_id) %>% 
+              mutate(be_churn = 0) %>% 
+              select(customer_unique_id,be_churn)
+            , by = "customer_unique_id") %>%
+  mutate(be_churn = as.factor(replace_na(be_churn, 1))) %>% 
+  select(-customer_unique_id,- city)
+head(test_df)
+test_df %>% skim_without_charts()
+```
+
+```{r}
+cor_summary(test_df %>% 
+              mutate(be_churn = as.integer(be_churn)%>% 
+              na.omit()
+              ),'be_churn')
+```
+
+## write the correcting data part
+```{r}
+# filenamepath_train <- glue::glue("temp_sc/{lubridate::today()}_train_df.rds")
+# filenamepath_test <- glue::glue("temp_sc/{lubridate::today()}_test_df.rds")
+# filenamepath_join <- glue::glue("temp_sc/{lubridate::today()}_join_df.rds")
+# # write files
+# write_rds(train_df,filenamepath_train)
+# write_rds(test_df,filenamepath_test)
+# write_rds(join_df,filenamepath_join)
+# 
+# 
+# write_rds(final_total_metric_tune,filenamepath)
+
+# read files
+# train_df <- read_rds(filenamepath_train)
+# test_df <- read_rds(filenamepath_test)
+train_df
+train_df <- read_rds("temp_sc/train_df.rds") %>% 
+  select(-state)
+test_df <- read_rds("temp_sc/test_df.rds") %>%
+  select(-state)
+# join_df <- read_rds("temp_sc/join_df.rds") %>% 
+#   select(-state)
+```
+
+
+```{r}
+customer_recipe <- recipe( be_churn ~ . , data = train_df ) %>%
+  # Normalization or Scaling: Logistic Regression and SVM are distance based algorithms and can be sensitive to the scale of the features
+  step_normalize( all_numeric_predictors() ) %>%
+  # Encoding Categorical Variables:
+  step_dummy(all_nominal_predictors()) %>%
+  # for SVM and logistric need to deal with outlier but random forest no need
+  step_zv( all_predictors() ) %>%
+  # Collinearity reduction
+  step_corr( all_numeric_predictors() ) %>%
+  prep()
+
+customer_recipe
+```
+
+```{r}
+train_pre_df <- juice(customer_recipe)
+train_pre_df %>% skim_without_charts()
+test_pre_df <- bake(customer_recipe, test_df)
+test_pre_df %>% skim_without_charts()
+```
+
+# Define the model
+
+## model specification -w/o tuning
+```{r}
+# Set the seed for reproducibility
+set.seed(1311)
+
+## Model specification without tune model
+# logistic regression with ridge regression and tune the penalty term
+logistic_spec <- logistic_reg(mode = "classification") %>%
+    set_engine("glm")
+    # set_engine("glmnet") # for tuning
+
+svm_spec <- svm_rbf(mode = "classification") %>%
+  set_engine("kernlab")
+
+# model specification - random forest
+rf_spec <- rand_forest( mode = "classification",
+                        tree = 1000) %>%
+  set_engine("ranger", importance = "impurity")
+
+# model specification - IDA
+lda_spec <- discrim_linear(mode = "classification") %>%
+  set_engine("MASS")
+
+
+
+# model specification - KNN
+knn_spec <- nearest_neighbor(mode = "classification") %>%
+  set_engine("kknn")
+
+# # XG boost
+# xgb_spec <- boost_tree( mode = "classification",
+#                         trees = 100) %>%
+#   set_engine("xgboost", eval_metric = "auc")
+
+# lightlbm
+lgbm_spec  <- boost_tree(mode = "classification",
+                         trees = 1000) %>%
+  set_engine("lightgbm")
+
+# List of models
+models <- list(logistic = logistic_spec,
+               random_forest = rf_spec,
+               lda = lda_spec,
+               svm = svm_spec,
+               knn = knn_spec,
+               lgbm = lgbm_spec
+               )
+```
+
+## fit and predict the model without tuning
+```{r}
+acc = tibble()
+roc_auc_score = tibble()
+total_metric = tibble()
+for(model_name in names(models)) {
+  model_spec <- models[[model_name]]
+
+  # Add model and recipe to workflow
+  wf <- workflow() %>%
+    add_model(model_spec) %>%
+    add_recipe(customer_recipe)
+
+  # Fit model
+  fit_res <- fit(wf, data = train_df)
+
+  # Make predictions
+  pred_class <- predict(fit_res, new_data = test_df)
+  pred_prob <- predict(fit_res, new_data = test_df, type = "prob")
+
+  predictions <- tibble()
+  predictions <- bind_cols(test_df %>% select(be_churn), pred_class, pred_prob)
+  print(predictions)
+
+  acc <- acc %>% rbind( accuracy(predictions, truth = be_churn, estimate = .pred_class) %>%
+                          cbind(model = model_name)
+                        )
+  roc_auc_score <- roc_auc_score %>% rbind(  roc_auc(predictions, truth = be_churn, .pred_1) %>%
+                                               cbind(model = model_name)
+                        )
+  # Print results
+  print(model_name)
+  print(roc_auc_score)
+}
+# write the results
+total_metric <- rbind(roc_auc_score,acc)
+filenamepath <-  glue::glue("temp_sc/{lubridate::today()}_predict_churn_metric.rds")
+write_rds(total_metric,filenamepath)
+total_metric
+```
+
+## model specification -w/ tuning
+
+```{r}
+## Model specifications
+
+# Set the seed for reproducibility
+set.seed(1311)
+
+# logistic regression
+logistic_spec <- logistic_reg(mode = "classification",
+                              penalty = tune(), 
+                              mixture = 1) %>% 
+  set_engine("glmnet")
+
+# svm_rbf
+svm_spec <- svm_rbf(mode = "classification",
+                    cost = tune(),
+                    rbf_sigma = tune()
+                    ) %>% 
+  set_engine("kernlab")
+
+# random forest
+rf_spec <- rand_forest(mode = "classification",
+                       mtry = tune(), 
+                       trees = 1000, 
+                       min_n = tune()
+                       ) %>% 
+  set_engine("ranger", importance = "impurity")
+# xgboost
+xgboost_spec <- boost_tree(mode = "classification",
+                           trees = 1000, 
+                           min_n = tune(), 
+                           tree_depth = tune(), 
+                           learn_rate = tune()) %>%
+  set_engine("xgboost")
+
+# lightGBM
+lgbm_spec  <- boost_tree(mode = "classification",
+                           trees = 1000, 
+                           min_n = tune(), 
+                           learn_rate = tune(),
+                         mtry = tune()) %>%
+  set_engine("lightgbm")
+# k-near-neaboour
+knn_spec <- nearest_neighbor(mode = "classification",
+                             neighbors = tune()) %>% 
+  set_engine("kknn")
+
+# quadratic discriminant analysis (QDA) model.
+qda_spec <- discrim_quad(mode = "classification") %>%
+  set_engine("MASS")
+
+
+# Extend the list of models
+
+# not tune model
+untune_models <- list(qda = qda_spec)
+
+# tune model
+tune_models <- list(logistic = logistic_spec, 
+                    knn = knn_spec,
+                    svm = svm_spec, 
+                    random_forest = rf_spec,
+                    lgbm = lgbm_spec
+                    )
+
+# Define 5-fold cross-validation
+cv <- vfold_cv(train_df, v = 3)
+
+# Define grids for hyperparameter tuning
+grid_logistic <- grid_regular(penalty(), 
+                              levels = 5)
+grid_knn <- grid_regular(neighbors(), 
+                         levels = 5)
+grid_svm <- grid_regular(cost(), 
+                         rbf_sigma(), 
+                         levels = 5)
+grid_random_forest <- grid_regular(mtry(range = c(1, floor(sqrt(ncol(train_df))))), 
+                                   min_n(), 
+                                   levels = 5)
+# grid_xgboost <- grid_regular(trees(), min_n(), learn_rate(), tree_depth(), levels = 5)
+grid_lgbm <- grid_regular( learn_rate(range = c(0.01, 0.3)), 
+                          min_n(range = c(2, 10)),
+                          mtry(range = c(1, floor(sqrt(ncol(train_df))))),
+                          levels = 5)
+
+# Extend the list of grids
+grids <- list(
+  logistic = grid_logistic, 
+  knn = grid_knn,
+  svm = grid_svm, 
+  random_forest = grid_random_forest,
+  # xgboost = grid_xgboost,
+  lgbm = grid_lgbm
+              )
+
+# Perform hyperparameter tuning for each model
+tune_res <- list()
+
+for(model_name in names(tune_models)) {
+  print(model_name)
+  model_spec <- tune_models[[model_name]]
+  
+   # Add model and recipe to workflow
+  wf <- workflow() %>%
+    add_model(model_spec) %>%
+    add_recipe(customer_recipe)
+  
+  # Perform hyper-parameter tuning for each model
+  tune_res[[model_name]] <- tune_grid(
+    wf,
+    resamples = cv,  # this should be your rsample object, which is `cv` in this case.
+    grid = grids[[model_name]],
+    metrics = metric_set(roc_auc,accuracy),
+    control = control_grid(verbose = TRUE)
+  )
+  }
+# Extract best models
+tune_res
+best_models <- map(tune_res, tune::select_best, "roc_auc")
+best_models
+
+final_models <- list()
+# Fit best models on entire training data
+final_tunemodels <- map2(best_models, tune_models, function(best, model) {
+  final_wf <- workflow() %>%
+    add_model(model %>% finalize_model(best)) %>%
+    add_recipe(customer_recipe)
+  fit(final_wf, data = train_df)
+})
+final_tunemodels
+best_models
+# final_untune_models <- map(untune_models, function(models) {
+#   final_wf <- workflow() %>%
+#     add_model(models) %>%
+#     add_recipe(customer_recipe)
+#   fit(final_wf, data = train_df)
+# })
+
+# final_models <- c(final_tunemodels,final_untune_models)
+# final_models
+```
+
+```{r}
+acc_tune = tibble()
+roc_auc_tune = tibble()
+ # Make predictions
+for(model_name in names(final_tunemodels)){
+  print(model_name)
+  
+  # Make predictions
+  data_set <- list(train = train_df,
+                   test = test_df)
+  
+  for (i in names(data_set)){
+    # Make predictions
+    print(i)
+    split_df <- data_set[[i]]
+
+    pred_class <- predict(final_tunemodels[[model_name]], new_data = split_df)
+    pred_prob <- predict(final_tunemodels[[model_name]], new_data = split_df, type = "prob")
+    predictions <- tibble()
+    predictions <- bind_cols(split_df %>% select(be_churn), pred_class, pred_prob)
+    print(predictions)
+    # 
+    acc_tune <- acc_tune %>%
+      rbind(accuracy(predictions,
+                     truth = be_churn,
+                     estimate = .pred_class) %>%
+              cbind(model = model_name,
+                    data_type = i))
+    roc_auc_tune <- roc_auc_tune %>%
+      rbind(roc_auc(predictions,
+                    truth = be_churn,
+                    .pred_1) %>%
+              cbind(model = model_name,
+                    data_type = i))
+  }
+}
+# predict(final_models[['random_forest']], new_data = train_df)
+# write the results
+total_metric_tune <- rbind(roc_auc_tune,acc_tune)
+final_total_metric_tune <- total_metric_tune %>%
+  select(-.estimator) %>% 
+  spread(data_type,.estimate) %>% 
+  arrange(desc(.metric), desc(test))
+filenamepath <- glue::glue("temp_sc/{lubridate::today()}_predict_churn_metric_tune_2.rds")
+write_rds(final_total_metric_tune,filenamepath)
+final_total_metric_tune
+```
+
+
+# output
+```{r}
+final_total_metric <- read_rds("temp_sc/2023-07-22_predict_churn_metric.rds")
+final_total_metric_tune <- read_rds("temp_sc/2023-07-22_predict_churn_metric_tune_2.rds")
+final_total_metric
+final_total_metric_tune
+```
+
+
+
+
